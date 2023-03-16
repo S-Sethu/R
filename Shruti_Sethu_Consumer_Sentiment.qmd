@@ -1,0 +1,651 @@
+---
+title: "Consumer Sentiment"
+subtitle: "Final Project"
+author: "Shruti Sethu"
+format: 
+  revealjs:
+    slide-number: True
+    fig-align: center
+    fig-width: 8
+    fig-asp: 0.618
+    out-width: 100%
+    fig-format: svg
+    scrollable: True
+    smaller: True
+    code-fold: True
+    theme: serif
+    transition: fade
+    embed-resources: true
+project:
+  execute-dir: project
+---
+
+## Introduction: Consumer Sentiment
+
+The [Surveys of Consumers](http://www.sca.isr.umich.edu/), which is used to measure consumer sentiment, is conducted by University of Michigan. A minimum of 600 telephonic interviews are conducted to assess a consumers attitude and expectations. The survey is conducted every month, and has roughly 50 questions covering core aspects of consumer sentiment which are:
+
+-   Personal finance
+
+-   Business conditions
+
+-   Buying conditions
+
+Consumer sentiment acts as a lead indicator for how the boom or bust cycle of an economy move. If consumers have a pessimistic outlook they will wish to curtail their expenditure and rebuild financial reserves. This, in the long-run, might lead to a slowdown in the economy and indicate the advent of recessionary conditions.
+
+Since, the information is collected with the help of a questionnaire it is subjective, thus resulting in a certain degree of variability that lends itself to the data. This inherent variability might make it difficult to forecast.
+
+## Exploratory Data Analysis
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(ggplot2)
+library(gridExtra)
+library(fredr)
+library(tibble)
+library(tidyverse)
+library(rmarkdown)
+library(gapminder)
+library(janitor)
+library(lubridate)
+library(scales)
+library(gt)
+library(patchwork)
+library(kableExtra)
+library(data.table)
+library(corrplot)
+library(zoo)
+library(forecast)
+library(fable)
+library(feasts)
+library(tsibble)
+library(tseries)
+library(DT)
+library(fable.prophet)
+library(prophet)
+
+```
+
+::: panel-tabset
+### Initial Chart
+
+```{r, fig.align='center',fig.dim=c(10,4), echo =TRUE, warning=FALSE}
+fredr_set_key("70919fe213e30e6afca54803aa407c43")
+
+cons_sent_train <- fredr(
+  series_id = "UMCSENT",
+  observation_start = as.Date("2007-01-01"),
+  observation_end = as.Date("2018-12-01")) %>%
+  select(date, value) %>%
+  mutate(date = yearmonth(date)) %>%
+  as_tibble()
+
+cons_sent_test <- fredr(
+  series_id = "UMCSENT",
+  observation_start = as.Date("2019-01-01"),
+  observation_end = as.Date("2022-11-01")) %>%
+  select(date, value) %>%
+  mutate(date = yearmonth(date)) %>%
+  as_tibble()
+
+cons_sent_plot <- cons_sent_train %>%
+  ggplot() +
+  geom_line(aes(date, value)) +
+  theme_minimal() +
+  xlab("Date") +
+  ylab("Consumer Sentiment")
+
+cons_sent_plot
+
+```
+
+-   Consumer Sentiment appears to follow a upward trend since mid-2011.
+-   The consumer sentiment had reached low levels in 2009 and 2011.
+
+### Density Plots
+
+```{r, fig.align='center',fig.dim=c(10,4), echo =TRUE, warning=FALSE}
+hist <- cons_sent_train %>%
+  ggplot() +
+  geom_histogram(aes(value)) +
+  theme_minimal()
+
+dens <- cons_sent_train %>%
+  ggplot() +
+  geom_density(aes(value)) +
+  theme_minimal()
+
+boxplot <- cons_sent_train %>%
+  ggplot() +
+  geom_boxplot(aes("", value)) +
+  theme_minimal()
+
+hist + dens + boxplot
+
+```
+
+-   The histogram appears to be bi-modal.
+-   The density of consumer sentiment appears to be more at two points namely 75 and 95.
+-   There are no outliers in the data and the median value appears to hover near 81.
+
+### Summary Statistics
+
+| Parameters             | Values              |
+|------------------------|---------------------|
+| Number of Observations | 144                 |
+| Mean                   | 81.21               |
+| Median                 | 81.85               |
+| Standard Deviation     | 12.53               |
+| Range                  | 55.3 to 101.4       |
+| Period of Observation  | Jan 2007 - Dec 2018 |
+
+-   The mean and median are close to each other indicating that the distribution does not have outliers.
+:::
+
+## Moving Average
+
+::: panel-tabset
+
+### Moving Average Trend
+
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+MA <- cons_sent_train %>%
+  mutate(MA_13 = zoo::rollmean(cons_sent_train$value, k = 13, fill = NA))
+
+
+MA_plot <- MA %>%
+  ggplot() +
+  geom_line(aes(date, value), size = 1.5) +
+  geom_line(aes(x = date, y =MA_13), color = "orange", size = 1)+
+  scale_color_discrete(name = 'MA Order')+
+  theme_minimal()+
+  ylab('Consumer Sentiment')
+
+MA_plot
+
+```
+
+-   Moving Average 13 is able to capture the pattern of consumer sentiment properly.
+
+### Moving Average Decomposition
+
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+cons_sent_decomp <- cons_sent_train %>%
+  mutate(ma_13_center = rollapply(value,
+      13,
+      FUN = mean,
+      align = "center", fill = NA)) %>%
+  mutate(resid = value - ma_13_center) %>%
+  select(date, value, ma_13_center, resid)
+
+
+cons_sent_decomp_plot <- cons_sent_decomp %>%
+  pivot_longer(value:resid,
+    names_to = "decomposition",
+    values_to = "value") %>%
+  mutate(decomposition = case_when(
+      decomposition == "value" ~ "Consumer Sentiment",
+      decomposition == "ma_13_center" ~ "Trend",
+      decomposition == "resid" ~ "Remainder")) %>%
+  mutate(decomposition = factor(
+      decomposition,
+      labels = c("Consumer Sentiment",
+        "Trend",
+        "Remainder"),
+      levels = c("Consumer Sentiment",
+        "Trend",
+        "Remainder"))) %>%
+  ggplot() +
+  geom_line(aes(date, value), size = 1) +
+  facet_wrap(~decomposition,
+    nrow = 3,
+    scales = "free") +
+  theme_bw() +
+  ylab("") +
+  xlab("Month") +
+  ggtitle("Consumer Sentiment = Trend + Remainder")
+
+cons_sent_decomp_plot
+
+```
+
+-   The decomposition is able to capture the upward trend completely. 
+-   Additionally, there does not appear to any seasonal component visible in the remainder series.
+
+:::
+
+
+## Classical Decomposition
+::: panel-tabset
+
+### Additive Decomposition
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_add = cons_sent_train %>%
+  as_tsibble() %>%
+  model(classical_decomposition(value,'additive')) %>%
+  components() 
+
+cons_sent_add %>%
+  autoplot()
+
+```
+
+-   The classical decomposition does show us a seasonal pattern, however, consumer sentiment would not have seasonality as its data generating process is based on consumer response to a set of interview questions.
+
+-   Additionally, the responses are collated from a different group of consumers every month which makes the process random.
+
+
+### Lagged Plot
+
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_train %>%
+   mutate(date = yearmonth(date)) %>%
+  as_tsibble() %>%
+  model(classical_decomposition(value,'additive')) %>%
+  components() %>%
+  gg_lag(random, geom = "point", lags = 1:12)+
+  geom_smooth(aes(color=NULL),method='lm',color='orange',se=F)
+
+```
+
+-   In the lagged plots, we can see that there is no seasonality in the remainder component.
+
+:::
+
+## Checking Stationarity
+
+::: panel-tabset
+### Rolling Average
+
+```{r, echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+library(gt)
+
+cons_sent_roll <- cons_sent_train %>%
+  mutate(
+    value_mean = zoo::rollmean(
+      value, 
+      k = 12, 
+      fill = NA),
+    value_sd = zoo::rollapply(
+      value, 
+      FUN = sd, 
+      width = 12, 
+      fill = NA)
+  )
+
+cons_sent_rollmean <- cons_sent_roll %>%
+  ggplot() +
+  geom_line(aes(date, value)) +
+  geom_line(aes(date, value_mean),color='blue') +
+  theme_minimal() +
+  ggtitle("Consumer Sentiment Mean over Time (12 month rolling window)") +
+  ylab("Consumer Sentiment") +
+  xlab("Date")
+
+cons_sent_rollmean
+
+```
+
+-   The 12 month rolling mean of consumer sentiment keeps trending either upwards or downwards indicating that it is not mean stationary.
+
+### Rolling Standard Deviation
+
+```{r, echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_rollsd <- cons_sent_roll %>%
+  ggplot() +
+  geom_line(aes(date, value_sd)) +
+  geom_smooth(aes(date,value_sd),method='lm', se=F)+
+  theme_minimal() +
+  ggtitle("Consumer Sentiment Standard Deviation over Time (12 month rolling window)") +
+  ylab("Consumer Sentiment") +
+  xlab("Date")
+
+cons_sent_rollsd
+```
+
+-   The rolling standard deviation(SD) of consumer sentiment appears to be downward sloping with the scale of deviations being minimal. 
+:::
+
+## Mean and Variance Stationarity
+
+::: panel-tabset
+### First Differencing of Consumer Sentiment
+
+```{r, echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_diff <- cons_sent_train %>%
+  mutate(value_diff = value - lag(value)) %>%
+  as_tsibble(index=date)
+
+cons_sent_diff %>%
+  ggplot() +
+  geom_line(aes(date, value_diff)) +
+  theme_minimal() +
+  ylab("Consumer Sentiment (Difference)") +
+  xlab("Date")
+
+
+```
+
+-   The series after its first difference appears to be mean stationary.
+
+### Rolling SD of Differenced Series
+
+```{r, echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_diff %>%
+mutate(
+    diff_sd = zoo::rollapply(
+      value_diff, 
+      FUN = sd, 
+      width = 13, 
+      fill = NA)) %>%
+ggplot()+
+geom_line(aes(date,diff_sd))+
+geom_smooth(aes(date,diff_sd),method='lm',se=F)+
+ylab("SD of Differenced Consumer Sentiment") +
+xlab("Date")+
+theme_minimal()
+
+
+```
+
+-   The rolling standard deviation of consumer sentiment is downward sloping and has reduced variability.
+
+### Testing for Stationarity - KPSS Test
+
+***First Differenced Value:***
+
+```{r,echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+diff_value_kpss = cons_sent_diff %>% 
+features(value_diff, unitroot_kpss)
+
+diff_value_kpss
+
+```
+
+-   The p-value \> 0.05 indicating that the series is stationary after first difference.
+
+:::
+## ARIMA Modeling
+
+::: panel-tabset
+### ACF and PACF plots
+
+```{r,echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+acf = cons_sent_diff %>%
+  ACF(value_diff,lag_max=10) %>%
+  autoplot()
+
+pacf =  cons_sent_diff %>%
+  fill_gaps() %>%
+  PACF(value_diff) %>%
+  autoplot()
+
+acf + pacf
+
+```
+
+-   The ACF and PACF plots dont reveal much about the type of AR or MR process that the model might follow.
+-   It also looks like consumer sentiment might not follow any AR or MR process.
+
+### Checking Different ARIMA Models
+
+```{r,echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+models_bic = cons_sent_diff %>%
+  model(
+    mod1 = ARIMA(value~pdq(0,1,0)+PDQ(0,0,0)),
+    mod2 = ARIMA(value~pdq(1,1,0)+PDQ(0,0,0)),
+    mod3 = ARIMA(value~pdq(2,1,0)+PDQ(0,0,0)),
+    mod4 = ARIMA(value~pdq(0,1,1)+PDQ(0,0,0)),
+    mod5 = ARIMA(value~pdq(0,1,2)+PDQ(0,0,0)),
+    mod6 = ARIMA(value~pdq(1,1,1)+PDQ(0,0,0))
+  )
+
+models_bic %>%
+  glance() %>%
+  arrange(BIC)
+
+```
+
+-   Based on the low BIC value for model 1, it appears that the consumer sentiment follows a ARIMA(0,1,0) process.
+-   This validates the patterns we saw previously on the ACF and PACF plots.
+
+### Best Fit Model - Auto ARIMA
+
+```{r,echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_diff %>%
+model(ARIMA(value, approximation=F)) %>%
+report()
+
+```
+
+-   Using the Auto ARIMA function we can clearly see that the model followed by consumer sentiment is a random walk.
+
+:::
+
+## Residual Analysis
+
+::: panel-tabset
+### Residuals of the Best Model
+
+```{r,echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+best_mod <- cons_sent_diff %>%
+  model(ARIMA(value, approximation=F))
+
+best_mod %>%
+  gg_tsresiduals()
+
+```
+
+-   The residuals appear to follow white noise.
+
+### Box-Ljung test
+
+***At Lag 1:***
+
+```{r,echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+best_mod %>%
+  augment() %>%
+  features(.innov, ljung_box, lag = 1, dof = 0)
+
+```
+
+***At Lag 5:***
+
+```{r,echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+best_mod %>%
+  augment() %>%
+  features(.innov, ljung_box, lag = 5, dof = 0)
+
+
+```
+
+***At Lag 10:***
+
+```{r,echo=TRUE, warning=FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+best_mod %>%
+  augment() %>%
+  features(.innov, ljung_box, lag = 10, dof = 0)
+
+
+```
+
+-   Since the p-value at all the different lags tested (1, 5 and 10) are greater than 0.05, this indicates that residuals from the model are white noise.
+
+:::
+
+## Prophet Model
+
+::: panel-tabset
+
+```{r}
+fredr_set_key("70919fe213e30e6afca54803aa407c43")
+
+cons_sent <- fredr(
+  series_id = "UMCSENT",
+  observation_start = as.Date("2007-01-01"),
+  observation_end = as.Date("2022-11-01")) %>%
+  select(date, value) %>%
+  mutate(date = yearmonth(date)) %>%
+  rename(Date = date, Value = value)%>%
+  as_tsibble()
+
+cons_sent_train1 = cons_sent %>%
+    filter(Date<ymd("2018-12-01"))
+
+cons_sent_test1 = cons_sent %>%
+    filter(Date>=ymd("2019-01-01"))
+
+```
+
+### Decomposition
+
+
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+fit <- cons_sent_train1 %>%
+    model(prophet = fable.prophet::prophet(Value ~ season(period = NULL)))
+
+components(fit) %>%
+  autoplot()
+
+```
+
+-   The trend followed by consumer sentiment series is linear. 
+-   Additionally, even though the decomposition shows us an additive seasonality there wont be any, as consumer sentiment does not have any seasonality.
+
+
+### Adding Trend
+
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+fit2 <- cons_sent_train1 %>%
+    model(prophet = fable.prophet::prophet(Value ~ growth(type = "linear", changepoint_prior_scale = 0.08)))
+
+threshold = 0.08 
+
+changepoints = fit2 %>%
+  glance() %>%
+  pull(changepoints) %>%
+  bind_rows() %>%
+  filter(abs(adjustment)>threshold) %>%
+  .$changepoints
+
+
+cons_sent_train1 %>%
+  ggplot()+
+  geom_line(aes(Date,Value))+
+  geom_vline(xintercept=as.Date(changepoints),color='red',linetype='dashed')+
+  theme_minimal()
+
+
+```
+
+-   The changepoint scale is able to capture the change in the slope of the upward trend being followed by consumer sentiment.
+
+:::
+
+## Model Comparison and Validation
+
+::: panel-tabset
+### Cross Validation
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_cv_data = cons_sent_train1 %>%
+  stretch_tsibble(.init = 36, .step = 12)
+
+
+cons_sent_cv_forecast = cons_sent_cv_data %>%
+  model(naive = NAIVE(Value),
+  arima = ARIMA(Value~pdq(0,1,0)), 
+  prophet = fable.prophet::prophet(Value ~ growth(type = "linear", changepoint_prior_scale = 0.08))) %>%
+  forecast(h = 12)
+
+cons_sent_cv_forecast %>%
+  autoplot(cons_sent_cv_data)+
+  facet_wrap(~.id,nrow=4)+
+  theme_bw()+
+  ylab('Consumer Sentiment')
+
+```
+
+### Accuracy Calculation
+
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_cv_forecast %>%
+  accuracy(cons_sent_train1) %>%
+  data.table()
+
+```
+
+-   As per the RMSE calculated, the model with the best performace is naive(Last value) with arima model being a close second. 
+
+### RMSE Plot
+
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_cv_forecast %>%
+  group_by(.id,.model) %>%
+  mutate(h = row_number()) %>%
+  ungroup() %>%
+  as_fable(response = "Value", distribution = Value) %>%
+  accuracy(cons_sent_train1, by = c("h", ".model")) %>%
+  ggplot(aes(x = h, y = RMSE,color=.model)) +
+  geom_point()+
+  geom_line()+
+  theme_bw()+
+  ylab('Average RMSE at Forecasting Intervals')+
+  xlab('Months in the Future')
+
+```
+
+-   From the plot we can see that at t+1, the accuracy using naive is better than arima, however, at t+2 the arima model is better. 
+
+-   As a result, we can say that either of the models can be used for forecasting as their RMSE values are almost close to each other across different months.
+
+:::
+
+## Forecast
+
+### Naive Forecast 
+```{r,echo=TRUE,warning = FALSE, fig.align ='center', fig.dim =c(10,4)}
+
+cons_sent_f <- cons_sent_train %>%
+  mutate(date = yearmonth(date)) %>%
+  as_tsibble()
+
+
+nv <- cons_sent_f %>%
+  model(Naive = NAIVE(value)) %>%
+  forecast(h = 50) %>%
+  autoplot(cons_sent_train %>% bind_rows(cons_sent_test), level = NULL,size=1) +
+  geom_vline(aes(xintercept = ymd("2019-01-01")), color = "red", linetype = "dashed")+
+  theme_minimal()+
+  ylab('Consumer Sentiment')
+
+
+nv
+```
+
+-  The performance of the last value in this case does not seem to be entirely that good, even though its RMSE value is low, as the impact of covid-19 could not have been predicted.
+
+-  Additionally, since consumer sentiment model follows random walk its best forecast would be the one which would extrapolate its last value.
+
+
+
+
+
+
+
