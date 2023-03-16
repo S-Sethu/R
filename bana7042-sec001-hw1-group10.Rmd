@@ -1,0 +1,388 @@
+---
+title: "Homework 1"
+author: "Behrendt, Nicholas | Kalambe, Akash | Devulapalli, Sravanthi | Sethu, Shruti"
+date: "2023-01-27"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
+library(here)
+library(tidyverse)
+library(data.table)
+```
+
+## Part I: Initial exploration
+
+#### 1. Read the two files FAA1.xls (800 flights) and FAA2.xls into R.
+
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
+faa1 <- read.csv(here("FAA1-1.csv"), stringsAsFactors = TRUE)
+faa2 <- read.csv(here("FAA2-1.csv"), stringsAsFactors = TRUE)
+faa2 <- faa2[1:150, ]
+```
+
+#### 2. Check the structure of each data set using the str() function. For each data set, what is the sample
+
+size and number of variables? Are there any differences between the two data sets?
+
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
+str(faa1)
+str (faa2)
+```
+
+FAA1 has 800 observations of 8 variables - one factor with two levels, one integer (a count variable), and six continuous variables. FAA2 has 150 observations of 7 variables - one factor with two levels, one integer (a count variable), and five continuous variables. FAA2 is missing the duration variable entirely.
+
+#### 3. Merge the two data sets. Are there any duplicate observations? If there are duplicate observations, what actions would you take before doing any further analysis?
+
+```{r, message=FALSE, error=FALSE, echo=FALSE}
+faa <- merge(faa1,faa2,all = TRUE)
+str(faa) # no duplicate rows
+  # would remove any duplicate rows
+```
+
+There are 100 duplicate observations due to the merger. The duplicated values need to be removed from the merged dataset.The resulting dataset of FAA has 850 samples and 8 variables.
+
+#### 4. Check the structure of the combined data set. Provide an appropriate (and concise) summary of each variable. (Graphics would be great, too!)
+
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
+str(faa)
+summary(faa)
+```
+
+```{r, message=FALSE, error=FALSE, warning=FALSE}
+# histograms
+library(Hmisc)
+hist.data.frame(faa[,2:8])
+
+par(mfrow=c(3,3))
+for (c in colnames(faa[,2:8])) {
+  boxplot(faa[[c]], main = c)
+}
+```
+
+-   **Aircraft** is a factor with two levels. 450 (53%) are airbus planes and 400 (47%) are Beoing planes.
+-   **Duration** is a continuous variable. Based on the mean and median, it is fairly symmetric. There are 50 missing values all belonging to the FAA2 original data set. The minimum value of 14.76 is less than the stated requirement of at least 40 minutes.
+-   **No_pasg** is a count (integer) variable. It is failry symmetric and there are no obvious outliers.
+-   **Speed_ground** is a continuous variable. It is fairly symmetric and there are no obvious outliers.
+-   **Speed_air** is a continuous variable. There is a larger difference between the mean and median suggesting some skewness to the distribution. There are no obvious outliers, but this data point is missing from the majority of the data set (642 out of 850 observations). The boxplot indicats some significant outliers.
+-   **Height** is a continuous variable. It is symmetric around the mean. The minimum height is less than the stated requirement of 6 meters.
+-   **Pitch** is a continuous variable. It is symmetric around its mean and has no obvious outliers. The boxplot indicats some significant outliers.
+-   **Distance** is a continuous variable. It is not symmetric and has a large right skew. The maximum is larger than the stated likely max of 6000. The boxplot indicats some significant outliers.
+
+#### 5. At this point, you are asked by FAA agents to prepare ONE presentation slide to summarize your findings (3--7 bullet points will suffice). What observations will you bring to the attention of the agents?
+
+```{r, message=FALSE, error=FALSE, echo=FALSE}
+summary(faa)
+faa %>% filter(distance > 6000) %>% count() # 3 records > 6000 ft
+faa %>% filter(distance > 5000) %>% count() # 9 records > 5000 ft
+faa %>% filter(distance > 4000) %>% count() # 29 records > 4000 ft
+
+    # entire second data set (150 records) is missing duration
+    # speed air is missing from 711/950 = 75% of records -- not usable for analysis
+    # will have to clean up some bad data -- negative heights, duration under 40
+    # half (median) of all records had landing distance less than 1268 ft
+    # only 3 records had landing distance > 6000 ft, 5000/9, 4000/29
+```
+
+-   The entire second data set (50 records) is missing duration
+-   Speed air is missing from 642/850 = 75% of records and is not usable for analysis
+-   We will have to clean up some bad data - negative heights, duration under 40, etc.
+-   Half of all records had landing distance less than 1268 ft
+-   Only 3 records had landing distance \> 6000 ft, 9 \> 5000 ft, and 29 \> 4000 ft
+
+## Part II: Data cleaning and further exploration
+
+#### 6. Are there any "abnormal" values in the data set? (You can refer to the data dictionary for criteria defining "normal/abnormal" values for each column.) Remove any rows that contain any "abnormal" values and report how many rows you have removed.
+
+```{r, message=FALSE, error=FALSE}
+faa %>% filter(duration < 40) %>% count() # 5 records
+faa %>% filter(is.na(duration)) %>% count() # 50 records
+faa %>% filter(speed_ground < 30 | speed_ground > 140) %>% count() # 3 records
+faa %>% filter(height < 6) %>% count() # 10 records
+faa %>% filter(distance > 6000) %>% count() # 2 records
+
+faa_clean <- faa %>% filter(duration >= 40 
+                      & speed_ground >= 30
+                      & speed_ground <= 140
+                      & height >= 6
+                      & distance <= 6000)
+
+dim(faa_clean) # 781 rows remain -- 70 rows removed
+```
+
+781 rows remain after removing the abnormal values. 70 rows were removed in total.
+
+#### 7. Repeat Step 4. Can you find a single visualization that helps to summarize the data?
+
+```{r, message=FALSE, error=FALSE}
+# histograms
+par(mfrow=c(3,3))
+hist.data.frame(faa_clean[,2:8])
+# all symmetric / normal except speed_air and distance
+
+par(mfrow=c(3,3))
+for (c in colnames(faa_clean[,2:8])) {
+  boxplot(faa_clean[[c]], main = c)
+}
+
+```
+
+We believe that it is worth creating more than one visual to summarize the data.
+
+#### 8. Prepare another presentation slide (or 3--7 bullet points) to summarize your findings obtained from the cleaned data set.
+
+-   After preparing the data, over 91% (781 rows) of the records remain for analysis
+-   We will be able to consider all variables in our analysis
+-   We have retained a good mix of Boeing and Airbus for comparison
+
+## Part III: Initial analysis for identifying important factors that impact the re- sponse variable distance
+
+#### 10. Compute the pairwise correlation between the distance and each predictor (i.e., every other column; consider re-encoding aircraft as 0/1 for boeing/airbus). Provide a table that ranks the predictors in descending order based on the strength (i.e., absolute value) of the correlations. This table should contain three columns:
+
+-   the names of variables
+-   the size of the correlation
+-   the direction of the correlation (i.e., positive or negative).
+-   Refer to this table as Table 1, which will be used for comparison with our analysis later.
+
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
+faa_clean$aircraft <- ifelse(faa_clean$aircraft == "boeing", 1, 0)
+
+correlation <- cor(faa_clean, use = "complete.obs")["distance", ]
+
+dist_cor <- as.data.frame(correlation, row.names = FALSE)
+dist_cor$predictor <- rownames(dist_cor)
+dist_cor$direction <- ifelse(dist_cor$correlation < 0, "Negative", "Positive")
+table1 <- as.data.table(dist_cor)
+table1 <- table1[, c(2,1,3)]
+table1
+```
+
+#### 11. Construct a scatter plot between the response and each predictor. Do you think the correlation strength observed in these plots is consistent with the results displayed in Table 1?
+
+```{r, message=FALSE, error=FALSE, echo=FALSE}
+par(mfrow=c(2,3))
+for (c in colnames(faa_clean[,-c(1,8)])) {
+  plot(faa_clean$distance ~ faa_clean[[c]], main = paste0(c, " (", round(table1[table1$predictor == c, correlation], 2), ")"), xlab = c, ylab = "distance")
+}
+```
+
+Yes, the highly positive linearly correlated predictors with distance are very obvious from their plots. The others show essentially no correlation.
+
+#### 12. Discuss any issues of including aircraft in this analysis. Does the correlation analysis make sense? How else might you analyse this variable and it's associative importance?
+
+Aircraft is a categorical variable. We will instead create boxplots to visualize possible correlations.
+
+```{r, message=FALSE, error=FALSE, echo=FALSE}
+boxplot(faa_clean$distance ~ faa_clean$aircraft, notch = TRUE)
+```
+
+The notches of the boxplots between the two aircraft types do not overlap. This suggests that there may be a significant predictive effect from including this variable in our distance predictions.
+
+## Part IV: Regression using a single factor each time
+
+#### 13. Regress distance on each of the predictors. Provide a table that ranks the factors based on its significance. The smaller the p-value, the more "important" the predictor. Organize the results in a new table, called Table 2, that's similar to Table 1.
+
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
+model1 <- lm(distance ~ ., data = faa_clean)
+# summary(model1)
+
+p_vals <- summary(model1)$coefficients[,4]
+table2 <- as.data.frame(p_vals, row.names = FALSE)
+
+table2 <- cbind(predictor = rownames(table2), table2)
+rownames(table2) <- 1:nrow(table2)
+table2 <- table2[order(table2$p_vals), ][-1, ]
+table2$direction <- ifelse(table2$p_vals < 0, "Negative", "Positive")
+
+table1 <- table1[order(abs(table1$correlation), decreasing=TRUE), ][-1,]
+
+table1
+table2
+```
+
+#### 14. Standardize each predictor by subtracting its mean and dividing by its standard deviation (i.e., so each predictor is centered with unit variance). Regress distance on each of the standardized predictors. Provide a table that ranks the predictors based on the size of the regression coefficients. The larger the size, the more "important" the predictor. Store the results in a new table, called Table 3; be sure to include a third column giving the sign of the corresponding coefficient.
+
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
+faa_std <- as.data.frame(scale(faa_clean))
+
+model2 <- lm(distance ~ ., data=faa_std)
+# summary(model2)
+
+coefs <- summary(model2)$coefficients[,1]
+table3 <- as.data.frame(coefs, row.names = FALSE)
+
+table3 <- cbind(predictor = rownames(table3), table3)
+rownames(table3) <- 1:nrow(table3)
+table3 <- table3[order(table3$coefs, decreasing = TRUE), ][-1, ]
+table3$direction <- ifelse(table3$coefs < 0, "Negative", "Positive")
+table3
+```
+
+#### 15. Compare Tables 1, 2, and 3. Are the results consistent? At this point, you will meet with the FAA agents again. Please provide a single table than ranks all the predictors based on their relative importance in predicting distance. We'll call it Table 0.
+
+```{r, message=FALSE, error=FALSE, warning=FALSE}
+comp_table <- as.data.frame(table1$predictor)
+colnames(comp_table) <- "predictor"
+comp_table$corr <- ""
+comp_table$p_val <- ""
+comp_table$coef <- ""
+
+for (c in comp_table$predictor) {
+  comp_table[comp_table$predictor == c, 2] <- which(table1 == c)
+  comp_table[comp_table$predictor == c, 3] <- which(table2 == c)
+  comp_table[comp_table$predictor == c, 4] <- which(table3 == c)
+}
+comp_table
+```
+
+No, these methods do not produce consistent results. None of the predictors have a consistent "predictive power ranking" across the three methods. Instead, we will determine predictive power by removing variables one by one from the model and assessing the impact on the performance of the model.
+
+```{r, message=FALSE, error=FALSE, warning=FALSE}
+xnames <-  setdiff(names(faa_clean), c("distance")) 
+vi.scores <- numeric(length(xnames))
+names(vi.scores) <- xnames
+(baseline <- deviance(model1))  # smaller is better; could also use AUC, Brier score, etc.
+for (xname in xnames) {
+  data.copy <- faa_clean
+  data.copy[[xname]] <- NULL
+  fit.new <- lm(distance ~ ., data = data.copy)
+  vi.scores[xname] <- deviance(fit.new) - baseline  # measure drop in performance
+}
+results <- sort(vi.scores, decreasing = TRUE)
+barplot(results, cex.names = 0.8)
+
+  # sort by largest deviance increase when predictor is removed
+  # speed air followed by aircraft
+
+table0 <- as.data.frame(results)
+table0
+```
+
+The model has the largest increase in deviance when speed_air is removed. This is followed by aircraft, height, and then the other predictors.
+
+## Part V: Checking for multicollinearity
+
+#### 16. Compare the regression coefficients of the three models below:
+
+-   Model 1: distance \~ speed_ground Model 2: distance \~ speed_air Model 3: distance \~ speed_ground + speed_air
+-   Do you observe any potential problems in the sign/significance of each term? Check the correlation between speed_ground and speed_air. If you had to choose between one of these two variables to include in the 2 model, which would it be and why? What other methods could you use to deal with potential multicollinearity? Are there any drawbacks to these other methods?
+
+```{r, message=FALSE, error=FALSE, warning=FALSE}
+lm1 <- lm(distance ~ speed_ground,data=faa_clean)
+lm2 <- lm(distance ~ speed_air,data=faa_clean)
+lm3 <- lm(distance~ speed_ground + speed_air,data=faa_clean)
+
+coef(lm1)
+coef(lm2)
+coef(lm3)
+
+df <- faa_clean%>%select(speed_ground,speed_air)
+```
+
+After comparing all coefficients from all 3 models we see that in lm2 model speed air is having highest coefficient with value of 79.24. However we see that speed_ground not only changes drastically in size, but also sign(from 41.5 to -12.32). The variable speed_air also changes quite a bit, but not nearly as much as speed_ground.As we know when multicollinearity is present, it can lead to unstable and unreliable estimates of the regression coefficients, as well as difficulty in interpreting the importance of individual predictors. If we had to choose between one of these two variables to include in the model, we would go with speed_air as it is does not drastically change in sign and value both even after adding 2nd variable.
+
+There are several methods to detect multicollinearity, such as Variance Inflation Factor (VIF), Tolerance, Condition Number, and Correlation matrix.
+
+1)So Lets look at correlation matrix.
+
+```{r, message=FALSE, error=FALSE, warning=FALSE}
+
+library(GGally)
+
+ggpairs(df,lower = list(continuous = wrap('points', colour = "blue")),
+diag = list(continuous = wrap("barDiag", colour = "red"))
+)
+
+```
+
+2)We can also check Variance Inflation Factor (VIF) to assess the degree of multicollinearity in a multiple regression model. It is calculated for each predictor variable in the model and can be used to identify which variables are highly correlated with one another.
+
+```{r, message=FALSE, error=FALSE, warning=FALSE}
+library(car)
+vif(lm3)
+```
+
+A general rule of thumb is that a VIF value of 5 or lower is acceptable, while a value greater than 5 indicates a high degree of multicollinearity and may warrant further investigation.
+
+## Part VI: Variable selection based on Table 0
+
+#### 17. Suppose in Table 0, the variable ranking is as follows: X1, X2, X3, X4, X5, and X6, where X1 and X6 are the most important and least important predictors, respectively. Please fit the following six models:
+
+-   Model 1: Y \~ X1 (i.e., regress distance on the most important predictor from Table 0)
+-   Model 2: Y \~ X1 + X2 (i.e., regress distance on the top two most important predictors from Table 0)
+-   .Andsoforth...
+-   Calculate R2 (i.e., ) R-squared for each model. Construct a plot of R2 (y-axis) vs. the number of variables p (x-axis). What pattern(s) do you observe?
+
+```{r, message=FALSE, error=FALSE, warning=FALSE, fig.align='left'}
+model1 <- lm(distance ~ speed_air, data = faa_clean)
+model2 <- lm(distance ~ speed_air + aircraft, data = faa_clean)
+model3 <- lm(distance ~ speed_air + aircraft + height, data = faa_clean)
+model4 <- lm(distance ~ speed_air + aircraft + height + no_pasg,
+             data = faa_clean)
+model5 <- lm(distance ~ speed_air + aircraft + height + no_pasg + pitch,
+             data = faa_clean)
+model6 <- lm(distance ~ speed_air + aircraft + height + no_pasg + pitch + duration,
+             data = faa_clean)
+
+r_sqr <- c(summary(model1)$r.squared, summary(model2)$r.squared, 
+           summary(model3)$r.squared, summary(model4)$r.squared, 
+           summary(model5)$r.squared,summary(model6)$r.squared)
+num_predictors <- seq(1,6)
+
+# r squared
+plot(r_sqr ~ num_predictors, main="R Squared", xlab = "Number of Predictors",
+     ylab = "R Squared")
+```
+
+The r-squared value increases as the number of predictors increases, but flattens out starting at 3 predictors.
+
+#### 18. Repeat 17), but use adjusted R2 instead.
+
+```{r, message=FALSE, error=FALSE, warning=FALSE, fig.align='left'}
+adj_r_sqr <- c(summary(model1)$adj.r.squared, summary(model2)$adj.r.squared,
+               summary(model3)$adj.r.squared, summary(model4)$adj.r.squared, 
+               summary(model5)$adj.r.squared, summary(model6)$adj.r.squared)
+plot(adj_r_sqr ~ num_predictors, main="Adj. R Squared", xlab = "Number of Predictors", 
+     ylab = "Adj. R Squared")
+```
+
+The adjusted r-squared value values a similar pattern, but slightly decreases after reaching 3 predictors.
+
+#### 19. Repeat 17. but use AIC instead.
+
+```{r, message=FALSE, error=FALSE, warning=FALSE, fig.align='left'}
+aic <- c(extractAIC(model1, 0, k = 2)[2], extractAIC(model2, 0, k = 2)[2], 
+         extractAIC(model3, 0, k = 2)[2], extractAIC(model4, 0, k = 2)[2], 
+         extractAIC(model5, 0, k = 2)[2], extractAIC(model6, 0, k = 2)[2])
+plot(aic ~ num_predictors, main="AIC", xlab="Number of Predictors", ylab="AIC")
+```
+
+The AIC values decrease as the number of predictors increases and also flattens out once we reach 3 predictors.
+
+#### 20. Compare the results 17--19. What variables would you select to build a predictive model for predicting distance? Any problems with this approach?
+
+Using this approach, it is clear that the first three variables produce the best results.The simplest model producing the lowest AIC and highest R\^2 and adjusted R\^2. However, this approach does not consider any combination of variables that is out of succession of the "predictive importance ranking" we assigned and therefore it is likely not a robust solution to the problem of selecting the best variables to include in the model.
+
+## Part VII: Variable selection using automatic search procedures
+
+#### 21. Use the R function StepAIC() from package MASS to perform forward variable selection; see ?MASS:stepAIC for details and usage examples (or ask in the class Teams chat). Compare the result with those from 19).
+
+```{r, message=FALSE, error=FALSE, warning=FALSE, fig.align='left'}
+aic_step <- MASS::stepAIC(model6, direction = c("both"))
+summary(aic_step)
+
+```
+
+By using the stepAIC function we can assess that the model with the lowest AIC score is the one with the predictors being speed_air, aircraft, height, and no_pasg. The AIC score we got was 1914.65 for this model.
+
+## Part VIII: The mirage of variable selection
+
+#### 22. Watch the following talk by Frank Harrell.Pay particular attention to his comments on variable selection starting around the 16:45 mark. In 2--3 paragraphs, discuss some of the issues regarding variable selection in statistical modeling.
+
+-   The most basic problem associated with variable selection practice is that the probability of selecting the right variable is always zero. It is impossible for the data to inform us which variables to use and it stems from the problem associated with information limitation.
+
+-   Generally, research papers focus more on calculating the false discovery rate (FDR) and not more so about false negative rate (FNR). In variable selection, FNR basically talks about the features not getting selected or we assume the variable to not be important. Additionally, if the FNR is high it indicates that since majority of the variables were not declared or we assumed it to be unimportant without having substantive proof of it.
